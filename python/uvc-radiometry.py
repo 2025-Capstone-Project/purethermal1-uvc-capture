@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+from ultralytics import YOLO
 from uvctypes import *
 import time
 import cv2
 import numpy as np
+
+from multiprocessing import Process, Manager
+import socket
+import random
+import json
+
+HOST = '192.168.43.4'   # 서버 B 주소
+PORT = 5001        # 서버 B 포트
+
 try:
   from queue import Queue
 except ImportError:
@@ -14,6 +23,17 @@ MIN_TEMP = 10 + 273.15
 MAX_TEMP = 60 + 273.15
 BUF_SIZE = 2
 q = Queue(BUF_SIZE)
+
+def send_loop(status):
+    print("Start Socket")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((HOST, PORT))
+        print(f"[A] Connected to {HOST}:{PORT}")
+        while True:
+            payload = json.dumps({'c': status.value})
+            s.sendall(payload.encode('utf-8') + b'\n')
+            print(f"[A] Sent -> a: {status.value}")
+            time.sleep(5)  # 5초마다 전송
 
 def py_frame_callback(frame, userptr):
 
@@ -52,18 +72,19 @@ def raw_to_8bit(data):
 
 def display_temperature(img, val_k, loc, color):
   val = ktoc(val_k)
-  cv2.putText(img,"{0:.1f} degC".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+  cv2.putText(img,"{0:.1f} degC".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.3, color, 1)
   x, y = loc
   cv2.line(img, (x - 2, y), (x + 2, y), color, 1)
   cv2.line(img, (x, y - 2), (x, y + 2), color, 1)
 
-def main():
+def main(status):
   ctx = POINTER(uvc_context)()
   dev = POINTER(uvc_device)()
   devh = POINTER(uvc_device_handle)()
   ctrl = uvc_stream_ctrl()
-
+  model = YOLO("best.pt")
   res = libuvc.uvc_init(byref(ctx), 0)
+
   if res < 0:
     print("uvc_init error")
     exit(1)
@@ -106,14 +127,25 @@ def main():
             break
           min_adc = MIN_TEMP * 100
           max_adc = MAX_TEMP * 100
-          data = cv2.resize(data[:,:], (640, 480))
+          data[data<=min_adc] = min_adc+1
+          data[data>=max_adc] = max_adc-1
+          #data = cv2.resize(data[:,:], (640, 480))
           minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(data)
           scaled = np.clip((data - min_adc) / (max_adc - min_adc), 0, 1)
-          img = raw_to_8bit(data)
+          img = raw_to_8bit(scaled)
           img = cv2.applyColorMap(img, cv2.COLORMAP_JET)
-          display_temperature(img, minVal, minLoc, (255, 0, 0))
-          display_temperature(img, maxVal, maxLoc, (0, 0, 255))
-          cv2.imshow('Lepton Radiometry', img)
+          results = model(img)
+          if results[0].boxes:
+            box = results[0].boxes[0]
+            class_id = int(box.cls)  # Get class ID
+            class_label = results[0].names[class_id]
+            status.value = class_label  # Get class label from class ID
+            print(f'Detected class: {class_label}')  # Print class label
+          annotated_image = results[0].plot()
+          display_temperature(annotated_image, minVal, minLoc, (255, 0, 0))
+          display_temperature(annotated_image, maxVal, maxLoc, (0, 0, 255))
+          annotated_image = cv2.resize(annotated_image[:,:], (320, 240))
+          cv2.imshow('Lepton Radiometry', annotated_image)
           cv2.waitKey(1)
 
         cv2.destroyAllWindows()
@@ -127,4 +159,10 @@ def main():
     libuvc.uvc_exit(ctx)
 
 if __name__ == '__main__':
-  main()
+  manager = Manager()
+  status = manager.Value('c', 'a')
+  status.value = "sexne~"
+  process1 = Process(target=send_loop, args=(status,))
+  process1.start()
+  main(status)
+  process1.terminate()
