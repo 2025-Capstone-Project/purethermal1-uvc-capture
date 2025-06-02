@@ -10,7 +10,8 @@ try:
 except ImportError:
   from Queue import Queue
 import platform
-
+MIN_TEMP = 10 + 273.15
+MAX_TEMP = 60 + 273.15
 BUF_SIZE = 2
 q = Queue(BUF_SIZE)
 
@@ -44,13 +45,14 @@ def ktoc(val):
   return (val - 27315) / 100.0
 
 def raw_to_8bit(data):
-  cv2.normalize(data, data, 0, 65535, cv2.NORM_MINMAX)
-  np.right_shift(data, 8, data)
-  return cv2.cvtColor(np.uint8(data), cv2.COLOR_GRAY2RGB)
+  cv2.normalize(data, None, alpha = 0, beta = 65535, norm_type = cv2.NORM_MINMAX)
+  #np.right_shift(data, 8, data)
+  data *= 256
+  return np.uint8(data)
 
 def display_temperature(img, val_k, loc, color):
-  val = ktof(val_k)
-  cv2.putText(img,"{0:.1f} degF".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+  val = ktoc(val_k)
+  cv2.putText(img,"{0:.1f} degC".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
   x, y = loc
   cv2.line(img, (x - 2, y), (x + 2, y), color, 1)
   cv2.line(img, (x, y - 2), (x, y + 2), color, 1)
@@ -102,9 +104,13 @@ def main():
           data = q.get(True, 500)
           if data is None:
             break
+          min_adc = MIN_TEMP * 100
+          max_adc = MAX_TEMP * 100
           data = cv2.resize(data[:,:], (640, 480))
           minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(data)
+          scaled = np.clip((data - min_adc) / (max_adc - min_adc), 0, 1)
           img = raw_to_8bit(data)
+          img = cv2.applyColorMap(img, cv2.COLORMAP_JET)
           display_temperature(img, minVal, minLoc, (255, 0, 0))
           display_temperature(img, maxVal, maxLoc, (0, 0, 255))
           cv2.imshow('Lepton Radiometry', img)
