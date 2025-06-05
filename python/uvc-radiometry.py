@@ -138,8 +138,7 @@ def main(status):
           if results[0].boxes:
             box = results[0].boxes[0]
             class_id = int(box.cls)  # Get class ID
-            class_label = results[0].names[class_id]
-            status.value = class_label  # Get class label from class ID
+            status.value = class_id  # Get class ID
             print(f'Detected class: {class_label}')  # Print class label
           annotated_image = results[0].plot()
           display_temperature(annotated_image, minVal, minLoc, (255, 0, 0))
@@ -160,8 +159,8 @@ def main(status):
 
 if __name__ == '__main__':
   manager = Manager()
-  status = manager.Value('c', 'a')
-  status.value = "sexne~"
+  status = manager.Value('i', '0')
+  status.value = 0
   process1 = Process(target=send_loop, args=(status,))
   process1.start()
   main(status)
