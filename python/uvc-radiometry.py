@@ -11,7 +11,7 @@ import socket
 import random
 import json
 
-HOST = '192.168.43.4'   # 서버 B 주소
+HOST = '192.168.43.101'   # 서버 B 주소
 PORT = 5001        # 서버 B 포트
 
 try:
@@ -30,7 +30,7 @@ def send_loop(status):
         s.connect((HOST, PORT))
         print(f"[A] Connected to {HOST}:{PORT}")
         while True:
-            payload = json.dumps({'c': status.value})
+            payload = json.dumps({'model_result': status.value})
             s.sendall(payload.encode('utf-8') + b'\n')
             print(f"[A] Sent -> a: {status.value}")
             time.sleep(5)  # 5초마다 전송
@@ -122,7 +122,7 @@ def main(status):
 
       try:
         while True:
-          data = q.get(True, 500)
+          data = q.get(True, 5)
           if data is None:
             break
           min_adc = MIN_TEMP * 100
@@ -138,7 +138,8 @@ def main(status):
           if results[0].boxes:
             box = results[0].boxes[0]
             class_id = int(box.cls)  # Get class ID
-            status.value = class_id  # Get class ID
+            class_label = results[0].names[class_id]
+            status.value = class_id  # Get class label from class ID
             print(f'Detected class: {class_label}')  # Print class label
           annotated_image = results[0].plot()
           display_temperature(annotated_image, minVal, minLoc, (255, 0, 0))
@@ -159,7 +160,7 @@ def main(status):
 
 if __name__ == '__main__':
   manager = Manager()
-  status = manager.Value('i', '0')
+  status = manager.Value('i', 0)
   status.value = 0
   process1 = Process(target=send_loop, args=(status,))
   process1.start()
